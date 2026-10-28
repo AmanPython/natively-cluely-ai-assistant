@@ -300,6 +300,15 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "extraResources": [
+        {
+          "from": "resources/bark/",
+          "to": "bark/",
+          "filter": [
+            "bark_worker.py"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "zip",
