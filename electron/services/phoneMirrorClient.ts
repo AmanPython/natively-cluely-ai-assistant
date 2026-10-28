@@ -906,6 +906,37 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
         transition: grid-template-rows var(--resize-dur) var(--resize-ease), opacity var(--duration-fast) var(--ease-smooth-out);
       }
       .tray-wrap[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+      .doc-tray {
+        display: none;
+        gap: 8px;
+        padding: 0 2px 8px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .doc-tray[data-open="true"] { display: flex; }
+      .doc-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        max-width: 220px;
+        padding: 6px 8px 6px 10px;
+        border-radius: var(--r-md);
+        background: var(--fill-2);
+        border: 1px solid var(--hair);
+        color: var(--label);
+        font-size: 12px;
+        flex-shrink: 0;
+      }
+      .doc-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .doc-chip button {
+        background: transparent;
+        border: none;
+        color: var(--label-2);
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 2px;
+        cursor: pointer;
+      }
       .tray-clip { min-height: 0; overflow: hidden; }
       .tray {
         display: flex;
@@ -1309,6 +1340,147 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
       @media (prefers-contrast: more) {
         :root { --hair: rgba(127, 127, 127, 0.6); --card-hair: rgba(127, 127, 127, 0.6); --label-2: var(--label); --label-3: var(--label); }
       }
+
+      /* ── Cropper Modal ──────────────────────────────────── */
+      .cropper-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        background: #000000;
+        display: flex;
+        flex-direction: column;
+        color: var(--label);
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      .cropper-modal[hidden] { display: none !important; }
+      .cropper-header {
+        height: 52px;
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        background: rgba(20, 20, 24, 0.94);
+        border-bottom: 1px solid var(--hair);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        z-index: 2;
+      }
+      .cropper-title { font-size: 16px; font-weight: 600; color: var(--label); }
+      .cropper-hdr-btn {
+        background: transparent;
+        border: none;
+        color: var(--label-2);
+        font-size: 15px;
+        font-weight: 500;
+        padding: 8px 12px;
+        border-radius: var(--r-md);
+        cursor: pointer;
+      }
+      .cropper-hdr-btn:active { background: var(--fill-1); color: var(--label); }
+      .cropper-hdr-btn.is-action { color: var(--accent); }
+      .cropper-stage {
+        flex: 1;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: #08080a;
+        touch-action: none;
+      }
+      .cropper-canvas-wrap {
+        position: relative;
+        display: inline-block;
+        touch-action: none;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+      }
+      #cropperCanvas {
+        display: block;
+        max-width: 100vw;
+        max-height: 70vh;
+        pointer-events: none;
+      }
+      .cropper-box {
+        position: absolute;
+        border: 2px solid var(--accent-fill);
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62);
+        box-sizing: border-box;
+        touch-action: none;
+        cursor: move;
+      }
+      .cropper-handle {
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        touch-action: none;
+      }
+      .cropper-handle::after {
+        content: "";
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border: 2px solid #ffffff;
+        background: var(--accent-fill);
+        border-radius: 2px;
+      }
+      .handle-nw { top: -14px; left: -14px; cursor: nwse-resize; }
+      .handle-nw::after { top: 7px; left: 7px; }
+      .handle-ne { top: -14px; right: -14px; cursor: nesw-resize; }
+      .handle-ne::after { top: 7px; right: 7px; }
+      .handle-sw { bottom: -14px; left: -14px; cursor: nesw-resize; }
+      .handle-sw::after { bottom: 7px; left: 7px; }
+      .handle-se { bottom: -14px; right: -14px; cursor: nwse-resize; }
+      .handle-se::after { bottom: 7px; right: 7px; }
+      .cropper-footer {
+        padding: 12px 16px calc(12px + var(--safe-bottom));
+        background: rgba(20, 20, 24, 0.94);
+        border-top: 1px solid var(--hair);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        z-index: 2;
+      }
+      .cropper-composer {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .cropper-prompt {
+        flex: 1;
+        height: 42px;
+        background: var(--fill-1);
+        border: 1px solid var(--hair);
+        border-radius: var(--r-md);
+        padding: 0 14px;
+        color: var(--label);
+        font-size: 14px;
+        outline: none;
+      }
+      .cropper-prompt:focus {
+        border-color: var(--accent);
+        background: var(--fill-2);
+      }
+      .cropper-send-btn {
+        height: 42px;
+        padding: 0 16px;
+        border-radius: var(--r-md);
+        background: var(--accent-fill);
+        color: #ffffff;
+        border: none;
+        font-size: 14px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .cropper-send-btn:active {
+        opacity: 0.85;
+        transform: scale(0.97);
+      }
     </style>
   </head>
   <body>
@@ -1380,6 +1552,7 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
               </div>
             </div>
           </div>
+          <div class="doc-tray" id="docTray" data-open="false" aria-label="Documents for this chat"></div>
           <div class="chips" id="chips" role="toolbar" aria-label="Ask your desktop">
             <button class="chip is-primary" type="button" data-action="whatToAnswer" data-needs-meeting>What to Say</button>
             <button class="chip" type="button" data-action="answer">Answer</button>
@@ -1395,10 +1568,19 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
               <svg class="t-icon spin" data-icon="b" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 1-8.5 8.5"/></svg>
               <svg class="t-icon" data-icon="c" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
             </button>
+            <button class="icon-btn t-icon-swap" id="cropBtn" type="button" data-state="a" aria-label="Take full screen screenshot and crop a region to ask AI">
+              <svg class="t-icon" data-icon="a" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+              <svg class="t-icon spin" data-icon="b" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 1-8.5 8.5"/></svg>
+              <svg class="t-icon" data-icon="c" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+            </button>
             <label class="icon-btn" id="imageBtn" for="imageInput" role="button" tabindex="0" aria-label="Send a photo or screenshot from this phone">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.7"/><path d="M20.5 15.2l-4.6-4.6L7.2 19.3"/></svg>
             </label>
             <input class="sr-only" id="imageInput" type="file" accept="image/*" multiple tabindex="-1" aria-hidden="true" />
+            <label class="icon-btn" id="docBtn" for="docInput" role="button" tabindex="0" aria-label="Attach a PDF or text file for this chat">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5h6.5L19 9v11.5a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20.5v-15A2 2 0 0 1 7 3.5z"/><path d="M13.5 3.5V9H19"/><path d="M9 13.5h6M9 17h4"/></svg>
+            </label>
+            <input class="sr-only" id="docInput" type="file" accept=".pdf,.txt,.md,.markdown,.docx,.csv,.json,.html,.htm" multiple tabindex="-1" aria-hidden="true" />
             <div class="field">
               <label class="sr-only" for="input">Message your desktop</label>
               <textarea id="input" rows="1" maxlength="2000" placeholder="Ask anything" enterkeyhint="send" autocomplete="off" autocorrect="on" spellcheck="true"></textarea>
@@ -1426,6 +1608,12 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           Copy transcript
         </button>
         <div class="menu-sep"></div>
+        <button class="menu-item" type="button" role="menuitem" data-menu="new-chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5h15A1.5 1.5 0 0 1 21 8v8.5a1.5 1.5 0 0 1-1.5 1.5H8.5L4 21.5V8A1.5 1.5 0 0 1 5.5 6.5z"/><path d="M12 10v5M9.5 12.5h5"/></svg>
+          New chat
+        </button>
+        <p class="menu-note">Starts a fresh conversation on your phone and computer. The meeting keeps going.</p>
+        <div class="menu-sep"></div>
         <button class="menu-item is-danger" type="button" role="menuitem" data-menu="clear">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h15M10 11v6M14 11v6M6.5 7l.8 11.2A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.8L17.5 7M9.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h2a1.5 1.5 0 0 1 1.5 1.5V7"/></svg>
           Clear this screen
@@ -1441,6 +1629,34 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           <h1 id="lockTitle">This pairing link has expired</h1>
           <p>On your computer, open <b>Natively Settings › Companion › Pair a phone</b>, then scan the code<span id="lockAgain"> again</span>.</p>
         </div>
+      </div>
+
+      <div class="cropper-modal" id="cropperModal" hidden role="dialog" aria-modal="true" aria-label="Crop full screen screenshot">
+        <header class="cropper-header">
+          <button class="cropper-hdr-btn" id="cropperCancel" type="button">Cancel</button>
+          <div class="cropper-title">Crop &amp; Ask</div>
+          <button class="cropper-hdr-btn is-action" id="cropperReset" type="button">Reset</button>
+        </header>
+        <div class="cropper-stage" id="cropperStage">
+          <div class="cropper-canvas-wrap" id="cropperCanvasWrap">
+            <canvas id="cropperCanvas"></canvas>
+            <div class="cropper-box" id="cropperBox">
+              <div class="cropper-handle handle-nw" id="cropHandleNW" data-handle="nw"></div>
+              <div class="cropper-handle handle-ne" id="cropHandleNE" data-handle="ne"></div>
+              <div class="cropper-handle handle-sw" id="cropHandleSW" data-handle="sw"></div>
+              <div class="cropper-handle handle-se" id="cropHandleSE" data-handle="se"></div>
+            </div>
+          </div>
+        </div>
+        <footer class="cropper-footer">
+          <div class="cropper-composer">
+            <input class="cropper-prompt" id="cropperPrompt" type="text" placeholder="What should AI do with this? (optional)" maxlength="200" />
+            <button class="cropper-send-btn" id="cropperSend" type="button">
+              <span>Ask AI</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </footer>
       </div>
 
       <div class="sr-only" id="sr" aria-live="polite"></div>
@@ -1740,8 +1956,25 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
         var input = byId('input');
         var sendBtn = byId('sendBtn');
         var captureBtn = byId('captureBtn');
+        var cropBtn = byId('cropBtn');
+        var cropperModal = byId('cropperModal');
+        var cropperCancel = byId('cropperCancel');
+        var cropperReset = byId('cropperReset');
+        var cropperStage = byId('cropperStage');
+        var cropperCanvasWrap = byId('cropperCanvasWrap');
+        var cropperCanvas = byId('cropperCanvas');
+        var cropperBox = byId('cropperBox');
+        var cropHandleNW = byId('cropHandleNW');
+        var cropHandleNE = byId('cropHandleNE');
+        var cropHandleSW = byId('cropHandleSW');
+        var cropHandleSE = byId('cropHandleSE');
+        var cropperPrompt = byId('cropperPrompt');
+        var cropperSend = byId('cropperSend');
         var imageBtn = byId('imageBtn');
         var imageInput = byId('imageInput');
+        var docBtn = byId('docBtn');
+        var docInput = byId('docInput');
+        var docTray = byId('docTray');
         var menu = byId('menu');
         var menuBtn = byId('menuBtn');
         var toast = byId('toast');
@@ -2767,6 +3000,8 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
             case 'meeting': onMeeting(ev); break;
             case 'attachments': onAttachments(ev); break;
             case 'images': onImages(ev); break;
+            case 'documents': onDocuments(ev); break;
+            case 'new-chat': onNewChat(); break;
             default: break;
           }
         }
@@ -3179,9 +3414,13 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           var ok = conn === 'live';
           Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (b) { b.disabled = !ok; });
           captureBtn.disabled = !ok;
+          cropBtn.disabled = !ok;
           imageInput.disabled = !ok;
           imageBtn.classList.toggle('is-disabled', !ok);
           imageBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
+          docInput.disabled = !ok;
+          docBtn.classList.toggle('is-disabled', !ok);
+          docBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
           sendBtn.disabled = !ok || !input.value.trim();
           input.placeholder = ok ? 'Ask anything' : 'Waiting for your desktop…';
         }
@@ -3441,6 +3680,312 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           });
         }
 
+        // ───── Session documents (PDF / text) ─────────────────────────────
+        var sessionDocs = [];
+        var MAX_DOCS_PER_PICK = 4;
+        docBtn.addEventListener('keydown', function (e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          if (!docInput.disabled) docInput.click();
+        });
+        docInput.addEventListener('change', function () {
+          var files = Array.prototype.slice.call(docInput.files || [], 0, MAX_DOCS_PER_PICK);
+          docInput.value = '';
+          files.reduce(function (chain, file) {
+            return chain.then(function () { return uploadDocument(file); });
+          }, Promise.resolve());
+        });
+        function uploadDocument(file) {
+          if (!isLive()) { showToast('Not connected to your desktop', true); return Promise.resolve(); }
+          if (!file || !file.size) { showToast('That file is empty', true); return Promise.resolve(); }
+          showToast('Sending ' + (file.name || 'document') + '…');
+          var controller = typeof AbortController === 'function' ? new AbortController() : null;
+          var timer = setTimeout(function () { if (controller) controller.abort(); }, 60000);
+          return fetch('/document?t=' + encodeURIComponent(token), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-Filename': file.name || 'document.txt',
+            },
+            body: file,
+            cache: 'no-store',
+            signal: controller ? controller.signal : undefined,
+          }).then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().catch(function () { return {}; });
+          }).then(function (body) {
+            if (body && body.ok) {
+              showToast((body.fileName || file.name || 'Document') + ' attached for this chat');
+              announce('Document attached.');
+            } else {
+              throw new Error('not-ok');
+            }
+          }).catch(function () {
+            showToast('Couldn’t attach that document', true);
+          }).then(function () {
+            clearTimeout(timer);
+          });
+        }
+        function onDocuments(ev) {
+          sessionDocs = (Array.isArray(ev.items) ? ev.items : []).filter(function (d) {
+            return d && typeof d.id === 'string' && typeof d.fileName === 'string';
+          });
+          paintDocTray();
+        }
+        function paintDocTray() {
+          docTray.innerHTML = '';
+          docTray.dataset.open = sessionDocs.length ? 'true' : 'false';
+          sessionDocs.forEach(function (doc) {
+            var chip = document.createElement('div');
+            chip.className = 'doc-chip';
+            var label = document.createElement('span');
+            label.textContent = doc.pageCount ? doc.fileName + ' · ' + doc.pageCount + 'p' : doc.fileName;
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.setAttribute('aria-label', 'Remove ' + doc.fileName);
+            remove.textContent = '×';
+            remove.addEventListener('click', function () {
+              if (!sendCommand({ type: 'detach-document', id: doc.id })) showToast('Not connected to your desktop', true);
+            });
+            chip.appendChild(label);
+            chip.appendChild(remove);
+            docTray.appendChild(chip);
+          });
+        }
+        function requestNewChat() {
+          if (!sendCommand({ type: 'new-chat' })) { showToast('Not connected to your desktop', true); return; }
+          showToast('Starting a new chat…');
+        }
+        function onNewChat() {
+          clearScreen();
+          sessionDocs = [];
+          paintDocTray();
+          showToast('New chat started');
+        }
+
+        // ───── Full screen capture & crop workflow ────────────────────────
+        var cropperSourceImage = null;
+        var cropDrag = null; // { mode: 'move'|'nw'|'ne'|'sw'|'se', startX, startY, initBox }
+        var cropBoxRect = { x: 0, y: 0, w: 0, h: 0 }; // in canvas CSS pixels
+
+        function closeCropperModal() {
+          cropperModal.hidden = true;
+          cropperSourceImage = null;
+          cropDrag = null;
+          cropBtn.dataset.state = 'a';
+        }
+
+        cropperCancel.addEventListener('click', closeCropperModal);
+        cropperReset.addEventListener('click', function () {
+          if (!cropperCanvas.width || !cropperCanvas.height) return;
+          var cw = cropperCanvas.clientWidth;
+          var ch = cropperCanvas.clientHeight;
+          var bw = Math.round(cw * 0.75);
+          var bh = Math.round(ch * 0.6);
+          cropBoxRect = {
+            x: Math.round((cw - bw) / 2),
+            y: Math.round((ch - bh) / 2),
+            w: bw,
+            h: bh,
+          };
+          renderCropBox();
+        });
+
+        function renderCropBox() {
+          cropperBox.style.left = cropBoxRect.x + 'px';
+          cropperBox.style.top = cropBoxRect.y + 'px';
+          cropperBox.style.width = cropBoxRect.w + 'px';
+          cropperBox.style.height = cropBoxRect.h + 'px';
+        }
+
+        function initCropperWithImage(img) {
+          cropperSourceImage = img;
+          var stageW = cropperStage.clientWidth || window.innerWidth;
+          var stageH = (cropperStage.clientHeight || (window.innerHeight - 130));
+          var naturalW = img.naturalWidth || img.width;
+          var naturalH = img.naturalHeight || img.height;
+          var fitScale = Math.min((stageW - 20) / naturalW, (stageH - 20) / naturalH, 1);
+          var dispW = Math.max(100, Math.round(naturalW * fitScale));
+          var dispH = Math.max(80, Math.round(naturalH * fitScale));
+
+          cropperCanvas.width = naturalW;
+          cropperCanvas.height = naturalH;
+          cropperCanvas.style.width = dispW + 'px';
+          cropperCanvas.style.height = dispH + 'px';
+
+          var ctx = cropperCanvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, naturalW, naturalH);
+
+          var bw = Math.round(dispW * 0.75);
+          var bh = Math.round(dispH * 0.6);
+          cropBoxRect = {
+            x: Math.round((dispW - bw) / 2),
+            y: Math.round((dispH - bh) / 2),
+            w: bw,
+            h: bh,
+          };
+          renderCropBox();
+          cropperModal.hidden = false;
+          cropperPrompt.value = '';
+          cropBtn.dataset.state = 'a';
+        }
+
+        cropBtn.addEventListener('click', function () {
+          if (!isLive()) {
+            showToast('Not connected to your desktop', true);
+            return;
+          }
+          cropBtn.dataset.state = 'b';
+          showToast('Capturing computer screen…');
+          fetch('/screenshot-full?t=' + encodeURIComponent(token), { cache: 'no-store' })
+            .then(function (res) {
+              if (!res.ok) throw new Error('capture-failed');
+              return res.blob();
+            })
+            .then(function (blob) {
+              return decodeImage(blob);
+            })
+            .then(function (img) {
+              initCropperWithImage(img);
+            })
+            .catch(function (err) {
+              cropBtn.dataset.state = 'a';
+              showToast('Could not capture screen: ' + (err && err.message ? err.message : 'error'), true);
+            });
+        });
+
+        function onPointerDown(e) {
+          var handle = e.target.dataset && e.target.dataset.handle;
+          var mode = handle ? handle : (e.target === cropperBox ? 'move' : null);
+          if (!mode) return;
+          e.preventDefault();
+          cropDrag = {
+            mode: mode,
+            startX: e.clientX,
+            startY: e.clientY,
+            initBox: { x: cropBoxRect.x, y: cropBoxRect.y, w: cropBoxRect.w, h: cropBoxRect.h },
+          };
+          try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+
+        function onPointerMove(e) {
+          if (!cropDrag) return;
+          e.preventDefault();
+          var dx = e.clientX - cropDrag.startX;
+          var dy = e.clientY - cropDrag.startY;
+          var b = cropDrag.initBox;
+          var maxW = cropperCanvas.clientWidth;
+          var maxH = cropperCanvas.clientHeight;
+          var minSize = 40;
+
+          var nx = b.x;
+          var ny = b.y;
+          var nw = b.w;
+          var nh = b.h;
+
+          if (cropDrag.mode === 'move') {
+            nx = Math.max(0, Math.min(maxW - b.w, b.x + dx));
+            ny = Math.max(0, Math.min(maxH - b.h, b.y + dy));
+          } else if (cropDrag.mode === 'nw') {
+            var right = b.x + b.w;
+            var bottom = b.y + b.h;
+            nx = Math.max(0, Math.min(right - minSize, b.x + dx));
+            ny = Math.max(0, Math.min(bottom - minSize, b.y + dy));
+            nw = right - nx;
+            nh = bottom - ny;
+          } else if (cropDrag.mode === 'ne') {
+            var bottomNe = b.y + b.h;
+            ny = Math.max(0, Math.min(bottomNe - minSize, b.y + dy));
+            nw = Math.max(minSize, Math.min(maxW - b.x, b.w + dx));
+            nh = bottomNe - ny;
+          } else if (cropDrag.mode === 'sw') {
+            var rightSw = b.x + b.w;
+            nx = Math.max(0, Math.min(rightSw - minSize, b.x + dx));
+            nw = rightSw - nx;
+            nh = Math.max(minSize, Math.min(maxH - b.y, b.h + dy));
+          } else if (cropDrag.mode === 'se') {
+            nw = Math.max(minSize, Math.min(maxW - b.x, b.w + dx));
+            nh = Math.max(minSize, Math.min(maxH - b.y, b.h + dy));
+          }
+
+          cropBoxRect = { x: nx, y: ny, w: nw, h: nh };
+          renderCropBox();
+        }
+
+        function onPointerUp(e) {
+          if (!cropDrag) return;
+          cropDrag = null;
+        }
+
+        cropperBox.addEventListener('pointerdown', onPointerDown);
+        cropperCanvasWrap.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+
+        cropperSend.addEventListener('click', function () {
+          if (!cropperSourceImage) return;
+          var promptText = (cropperPrompt.value || '').trim();
+          var cw = cropperCanvas.clientWidth;
+          var ch = cropperCanvas.clientHeight;
+          var nw = cropperSourceImage.naturalWidth || cropperSourceImage.width;
+          var nh = cropperSourceImage.naturalHeight || cropperSourceImage.height;
+          var scaleX = nw / cw;
+          var scaleY = nh / ch;
+
+          var srcX = Math.max(0, Math.round(cropBoxRect.x * scaleX));
+          var srcY = Math.max(0, Math.round(cropBoxRect.y * scaleY));
+          var srcW = Math.min(nw - srcX, Math.round(cropBoxRect.w * scaleX));
+          var srcH = Math.min(nh - srcY, Math.round(cropBoxRect.h * scaleY));
+
+          if (srcW <= 0 || srcH <= 0) {
+            showToast('Please select an area on the screen', true);
+            return;
+          }
+
+          var cropCanvas = document.createElement('canvas');
+          cropCanvas.width = srcW;
+          cropCanvas.height = srcH;
+          var ctx = cropCanvas.getContext('2d');
+          ctx.drawImage(cropperSourceImage, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+
+          var thumbCanvas = drawScaled(cropCanvas, THUMB_MAX_EDGE);
+          var thumbData = thumbCanvas.toDataURL('image/jpeg', 0.72);
+          var fullCanvas = drawScaled(cropCanvas, IMAGE_MAX_EDGE);
+
+          fullCanvas.toBlob(function (blob) {
+            if (!blob) {
+              showToast('Could not process crop', true);
+              return;
+            }
+            closeCropperModal();
+            showToast('Sending cropped screenshot…');
+
+            var entry = {
+              key: 'img:' + (++localSeq),
+              t: Date.now(),
+              kind: 'image',
+              local: true,
+              state: 'sending',
+              blob: blob,
+              thumb: thumbData,
+            };
+            pinned = true;
+            appendEntry(entry);
+
+            uploadImage(entry).then(function () {
+              if (entry.state === 'failed') return;
+              if (promptText) {
+                input.value = promptText;
+                submit();
+              } else {
+                var spec = ACTIONS.whatToAnswer;
+                if (!sendCommand({ type: 'action', action: 'whatToAnswer' })) { showToast('Not connected to your desktop', true); return; }
+                addPending('whatToAnswer', spec.label, spec.expect);
+              }
+            });
+          }, 'image/jpeg', 0.88);
+        });
+
         // ───── Menu ───────────────────────────────────────────────────────
         function openMenu() {
           menu.classList.remove('is-closing');
@@ -3472,6 +4017,7 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           closeMenu();
           if (what === 'copy') copyConversation();
           else if (what === 'transcript') copyTranscript();
+          else if (what === 'new-chat') requestNewChat();
           else if (what === 'clear') clearScreen();
         });
         function copyConversation() {

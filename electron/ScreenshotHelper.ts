@@ -1021,4 +1021,28 @@ export class ScreenshotHelper {
       return { success: false, error: msg };
     }
   }
+
+  /**
+   * Captures the primary or preferred display directly to a JPEG buffer.
+   * Does not save to disk or mutate the screenshot queue.
+   * Used for the remote Phone Mirror screen crop preview.
+   */
+  public async captureDisplayBuffer(preferredDisplay?: Electron.Display): Promise<{ buffer: Buffer; width: number; height: number }> {
+    assertScreenRecordingPermission();
+    const targetDisplay = preferredDisplay || screen.getPrimaryDisplay();
+    const { width, height } = targetDisplay.bounds;
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width, height }
+    });
+    if (sources.length === 0) {
+      throw new Error('No screen sources found');
+    }
+    const targetDisplayId = targetDisplay.id.toString();
+    let selectedSource = sources.find((s) => ('display_id' in s) && (s as any).display_id === targetDisplayId) || sources[0];
+    const image = selectedSource.thumbnail;
+    const size = image.getSize();
+    const jpegBuffer = image.toJPEG(85);
+    return { buffer: jpegBuffer, width: size.width, height: size.height };
+  }
 }

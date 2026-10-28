@@ -867,7 +867,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     // Active STT provider — declared here (not with the rest of the STT
     // settings below) because the local-model language-capability effect and
     // memo that follow depend on it.
-    const [sttProvider, setSttProvider] = useState<'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'qwen' | 'nvidia_nim' | 'natively' | 'local-whisper' | 'apple-speech'>('none');
+    const [sttProvider, setSttProvider] = useState<'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'qwen' | 'nvidia_nim' | 'natively' | 'local-whisper' | 'apple-speech' | 'bark'>('none');
 
     // Declared here for the same reason sttProvider is: the NVIDIA
     // language-capability memo below reads it, and which languages that model
@@ -1679,7 +1679,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
         return () => unsubscribe();
     }, []); // mount-once: isOpen is checked inside the callback
 
-    const handleSttProviderChange = async (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'qwen' | 'nvidia_nim' | 'natively' | 'local-whisper' | 'apple-speech') => {
+    const handleSttProviderChange = async (provider: 'none' | 'google' | 'groq' | 'openai' | 'deepgram' | 'elevenlabs' | 'azure' | 'ibmwatson' | 'soniox' | 'qwen' | 'nvidia_nim' | 'natively' | 'local-whisper' | 'apple-speech' | 'bark') => {
         setSttProvider(provider);
         setIsSttDropdownOpen(false);
         setSttTestStatus('idle');
@@ -1900,7 +1900,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     };
 
     const handleTestSttConnection = async () => {
-        if (sttProvider === 'none' || sttProvider === 'google' || sttProvider === 'natively' || sttProvider === 'local-whisper' || sttProvider === 'apple-speech') return;
+        if (sttProvider === 'none' || sttProvider === 'google' || sttProvider === 'natively' || sttProvider === 'local-whisper' || sttProvider === 'apple-speech' || sttProvider === 'bark') return;
         const keyMap: Record<string, string> = {
             groq: sttGroqKey, openai: sttOpenaiKey, deepgram: sttDeepgramKey,
             elevenlabs: sttElevenLabsKey, azure: sttAzureKey, ibmwatson: sttIbmKey,
@@ -3521,6 +3521,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                                                                nothing to configure — so they belong together at the top, ahead
                                                                of the bring-your-own-key providers. macOS only; the mark is
                                                                Apple's because the model runs on this machine. */
+                                                            ...(isMac ? [{ id: 'bark', label: 'Underdog Bark', badge: null, desc: t('On-device · English · Apple silicon'), color: 'green', icon: <BrandMark provider="apple" />, neutralTile: true }] : []),
                                                             ...(isMac ? [{ id: 'apple-speech', label: 'Apple Speech', badge: null, desc: t('On-device · macOS 26+'), color: 'green', icon: <BrandMark provider="apple" />, neutralTile: true }] : []),
                                                             { id: 'google', label: 'Google Cloud', badge: googleServiceAccountPath ? 'Saved' : null, desc: t('gRPC streaming via Service Account'), color: 'blue', icon: <BrandMark provider="google" />, neutralTile: true },
                                                             { id: 'groq', label: 'Groq Whisper', badge: hasStoredSttGroqKey ? 'Saved' : null, desc: t('Ultra-fast REST transcription'), color: 'orange', icon: <BrandMark provider="groq" />, neutralTile: true },
@@ -3601,7 +3602,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                                                 exactly like a model key does in AI Providers. Keyed on the
                                                 provider: every key-backed provider shares this card, so
                                                 without a key it would never remount — and never swap. */}
-                                            {sttProvider !== 'google' && sttProvider !== 'local-whisper' && sttProvider !== 'apple-speech' && sttProvider !== 'natively' && sttProvider !== 'none' && (() => {
+                                            {sttProvider !== 'google' && sttProvider !== 'local-whisper' && sttProvider !== 'apple-speech' && sttProvider !== 'bark' && sttProvider !== 'natively' && sttProvider !== 'none' && (() => {
                                                 const providerName = sttProvider === 'nvidia_nim' ? 'Nvidia Nim' : sttProvider === 'groq' ? 'Groq' : sttProvider === 'openai' ? 'OpenAI STT' : sttProvider === 'elevenlabs' ? 'ElevenLabs' : sttProvider === 'azure' ? 'Azure' : sttProvider === 'ibmwatson' ? 'IBM Watson' : sttProvider === 'soniox' ? 'Soniox' : sttProvider === 'qwen' ? 'Qwen ASR' : 'Deepgram';
                                                 const keyValue = sttProvider === 'nvidia_nim' ? sttNvidiaNimKey
                                                     : sttProvider === 'groq' ? sttGroqKey

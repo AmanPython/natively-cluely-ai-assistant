@@ -40,6 +40,7 @@ function assertPlatform(platform) {
  */
 const SPEECH_PROVIDERS = {
   natively: { label: 'Natively API', key: 'hasNativelyKey' },
+  bark: { label: 'Underdog Bark', onDevice: true, platforms: ['darwin'] },
   'apple-speech': { label: 'Apple Speech', onDevice: true, platforms: ['darwin'] },
   google: { label: 'Google Cloud', key: 'googleServiceAccountPath' },
   groq: { label: 'Groq Whisper', key: 'hasSttGroqKey' },

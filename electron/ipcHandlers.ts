@@ -42,6 +42,7 @@ import { buildRerankProbe } from './services/reranking/rerankProbe';
 import { ProviderStatusRegistry } from './services/ProviderStatusRegistry';
 import { SkillsManager } from './services/SkillsManager';
 import { SAFE_DOCUMENT_EXTENSIONS } from './services/SafeDocumentTextExtractor';
+import { SessionReferenceStore, withSessionReferenceContext } from './services/SessionReferenceStore';
 import { DEFAULT_BUILTIN_SKILL_IDS, type SkillUploadPayload } from './services/skills/SkillValidator';
 
 import { TRIAL_SENTINEL_KEY, DOM_CONTEXT_MAX_CHARS } from './config/constants';
@@ -1826,6 +1827,36 @@ export function initializeIpcHandlers(appState: AppState): void {
   // surface. Phone supersession compares against this dedicated latest-phone marker instead,
   // so only a NEWER PHONE message supersedes a phone stream (desktop streams stay per-sender).
   let _phoneChatLatestId = 0;
+
+  const broadcastSessionDocuments = () => {
+    const items = SessionReferenceStore.getInstance().list();
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send('session-reference:changed', items);
+    });
+  };
+
+  /** Fresh conversation, same meeting. Does not wipe the live transcript. */
+  const runNewChat = () => {
+    try {
+      const { abortAndInvalidateChatStreams } = require('./services/chatStreamRegistry') as typeof import('./services/chatStreamRegistry');
+      abortAndInvalidateChatStreams(_chatStreamsBySender);
+    } catch { /* non-fatal */ }
+    _phoneChatLatestId += 1;
+    try { appState.getIntelligenceManager()?.clearSessionContext(); } catch { /* non-fatal */ }
+    try { _manualConversationMemory.clearAllSessions(); } catch { /* non-fatal */ }
+    try { require('./context-intelligence/question/conversation-state-store').clearConversationState(); } catch { /* non-fatal */ }
+    try { _manualCodingState.clearAllSessions(); } catch { /* non-fatal */ }
+    SessionReferenceStore.getInstance().clear();
+    try { PhoneMirrorService.getInstance().publishNewChat(); } catch { /* non-fatal */ }
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) win.webContents.send('chat-cleared');
+    });
+    broadcastSessionDocuments();
+    return { success: true as const };
+  };
+
+  SessionReferenceStore.getInstance().onChange(() => broadcastSessionDocuments());
+
   // Per-process diversity guard for manual chat (manual regression 2026-06-12):
   // last-20 answer fingerprints; repeated answers across DIFFERENT questions are
   // compressed to speakable prose. Survives across questions within the app run
@@ -3082,6 +3113,7 @@ export function initializeIpcHandlers(appState: AppState): void {
         } catch (ctxErr) {
           console.warn('[IPC] Failed to capture pre-turn context:', ctxErr);
         }
+        context = withSessionReferenceContext(context);
 
         // Now add USER message to IntelligenceManager (after context snapshot)
         //
@@ -13492,7 +13524,8 @@ export function initializeIpcHandlers(appState: AppState): void {
         | 'nvidia_nim'
         | 'natively'
         | 'local-whisper'
-        | 'apple-speech',
+        | 'apple-speech'
+        | 'bark',
     ) => {
       try {
         const { CredentialsManager } = require('./services/CredentialsManager');
@@ -16540,6 +16573,53 @@ export function initializeIpcHandlers(appState: AppState): void {
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
+    }
+  });
+
+  safeHandle('intelligence:new-chat', async () => {
+    try {
+      return runNewChat();
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'new-chat-failed' };
+    }
+  });
+
+  safeHandle('session-reference:list', async () => SessionReferenceStore.getInstance().list());
+
+  safeHandle('session-reference:remove', async (_, id: string) => {
+    if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+      return { success: false, error: 'invalid_id' };
+    }
+    return { success: SessionReferenceStore.getInstance().remove(id) };
+  });
+
+  safeHandle('session-reference:attach', async () => {
+    let selectedPath: string | undefined;
+    try {
+      const result: any = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+          { name: 'Text, Documents & Code', extensions: [...SAFE_DOCUMENT_EXTENSIONS].map((extension) => extension.slice(1)) },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePaths?.[0]) return { success: false, cancelled: true };
+      const filePath = String(result.filePaths[0]);
+      selectedPath = filePath;
+      const { extractSafeDocumentText } = require('./services/SafeDocumentTextExtractor') as typeof import('./services/SafeDocumentTextExtractor');
+      const extracted = await extractSafeDocumentText(filePath);
+      const doc = SessionReferenceStore.getInstance().add({
+        fileName: extracted.fileName,
+        content: extracted.content,
+        pageCount: extracted.pageCount,
+      });
+      return { success: true, document: { id: doc.id, fileName: doc.fileName, pageCount: doc.pageCount } };
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      if (/unsupported file type/i.test(msg)) return { success: false, error: 'unsupported' };
+      if (/no extractable text/i.test(msg)) return { success: false, error: 'empty-text' };
+      console.error('[IPC] session-reference:attach error:', e);
+      return { success: false, error: msg || 'attach-failed' };
     }
   });
 
@@ -20422,7 +20502,13 @@ export function initializeIpcHandlers(appState: AppState): void {
   PhoneMirrorService.getInstance().onPhoneCommand(async (cmd) => {
     const win = appState.getMainWindow();
 
-    if (cmd.type === 'action') {
+    if (cmd.type === 'new-chat') {
+      runNewChat();
+      return;
+    } else if (cmd.type === 'detach-document') {
+      SessionReferenceStore.getInstance().remove(cmd.id);
+      return;
+    } else if (cmd.type === 'action') {
       // Re-use the same global-shortcut dispatch path the keyboard uses.
       // This keeps phone actions identical to key-triggered stealth actions.
       const helper = appState.getWindowHelper();
@@ -20504,6 +20590,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       } catch (ctxErr) {
         console.warn('[PhoneMirror] Failed to capture pre-turn context:', ctxErr);
       }
+      context = withSessionReferenceContext(context);
 
       intelligenceManager.addTranscript(
         { text: message, speaker: 'user', timestamp: Date.now(), final: true, origin: 'manual_chat' },

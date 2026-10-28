@@ -379,7 +379,7 @@ interface ElectronAPI {
       | 'qwen'
       | 'nvidia_nim'
       | 'natively'
-      | 'local-whisper' | 'apple-speech',
+      | 'local-whisper' | 'apple-speech' | 'bark',
   ) => Promise<{ success: boolean; error?: string }>;
   getAppleSpeechLocales: () => Promise<{ available: boolean; supported: string[]; installed: string[]; reserved: string[]; maxReserved: number }>;
   installAppleSpeechLocale: (locale: string) => Promise<{ ok: boolean; error?: string }>;
@@ -576,6 +576,12 @@ interface ElectronAPI {
     error?: string;
   }>;
   resetIntelligence: () => Promise<{ success: boolean; error?: string }>;
+  startNewChat: () => Promise<{ success: boolean; error?: string }>;
+  sessionReferenceList: () => Promise<Array<{ id: string; fileName: string; pageCount?: number }>>;
+  sessionReferenceAttach: () => Promise<{ success: boolean; cancelled?: boolean; error?: string; document?: { id: string; fileName: string; pageCount?: number } }>;
+  sessionReferenceRemove: (id: string) => Promise<{ success: boolean; error?: string }>;
+  onSessionReferenceChanged: (callback: (items: Array<{ id: string; fileName: string; pageCount?: number }>) => void) => () => void;
+  onChatCleared: (callback: () => void) => () => void;
 
   // Meeting Lifecycle
   startMeeting: (metadata?: any) => Promise<{ success: boolean; error?: string }>;
@@ -1998,7 +2004,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       | 'qwen'
       | 'nvidia_nim'
       | 'natively'
-      | 'local-whisper' | 'apple-speech',
+      | 'local-whisper' | 'apple-speech' | 'bark',
   ) => ipcRenderer.invoke('set-stt-provider', provider),
   getSttProvider: () => ipcRenderer.invoke('get-stt-provider'),
   getAppleSpeechLocales: () => ipcRenderer.invoke('apple-speech:get-locales'),
@@ -2302,6 +2308,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }) => ipcRenderer.invoke('test-inject-transcript', segment),
   testGetModeContext: () => ipcRenderer.invoke('test-get-mode-context'),
   resetIntelligence: () => ipcRenderer.invoke('reset-intelligence'),
+  startNewChat: () => ipcRenderer.invoke('intelligence:new-chat'),
+  sessionReferenceList: () => ipcRenderer.invoke('session-reference:list'),
+  sessionReferenceAttach: () => ipcRenderer.invoke('session-reference:attach'),
+  sessionReferenceRemove: (id: string) => ipcRenderer.invoke('session-reference:remove', id),
+  onSessionReferenceChanged: (callback: (items: Array<{ id: string; fileName: string; pageCount?: number }>) => void) => {
+    const subscription = (_: any, items: Array<{ id: string; fileName: string; pageCount?: number }>) => callback(items);
+    ipcRenderer.on('session-reference:changed', subscription);
+    return () => ipcRenderer.removeListener('session-reference:changed', subscription);
+  },
+  onChatCleared: (callback: () => void) => {
+    const subscription = () => callback();
+    ipcRenderer.on('chat-cleared', subscription);
+    return () => ipcRenderer.removeListener('chat-cleared', subscription);
+  },
 
   onModeChanged: (callback: (data: { id: string | null; name: string | null; fileCount?: number; indexedCount?: number }) => void) => {
     const subscription = (_: any, data: { id: string | null; name: string | null }) =>

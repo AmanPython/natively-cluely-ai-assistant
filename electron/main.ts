@@ -1311,6 +1311,7 @@ import { OpenAIStreamingSTT } from "./audio/OpenAIStreamingSTT"
 import { NativelyProSTT } from "./audio/NativelyProSTT"
 import { NvidiaNimStreamingSTT } from "./audio/NvidiaNimStreamingSTT"
 import { AppleSpeechSTT } from "./audio/AppleSpeechSTT"
+import { BarkSTT } from "./audio/BarkSTT"
 import { punctuationSourceFor } from "./llm/punctuationProvenance"
 import { configureVisionCapabilityStore } from "./llm/visionCapabilityStore"
 import { ThemeManager } from "./ThemeManager"
@@ -1320,7 +1321,7 @@ import { isSpokenSavedLine } from "./intelligence/savedTranscriptOrigin"
 import { buildSummaryTextForSearch } from "./rag/summaryTextForSearch"
 
 /** Unified type for all STT providers with optional extended capabilities */
-type STTProvider = (GoogleSTT | RestSTT | DeepgramStreamingSTT | SonioxStreamingSTT | QwenRealtimeSTT | ElevenLabsStreamingSTT | OpenAIStreamingSTT | NativelyProSTT | NvidiaNimStreamingSTT | AppleSpeechSTT) & {
+type STTProvider = (GoogleSTT | RestSTT | DeepgramStreamingSTT | SonioxStreamingSTT | QwenRealtimeSTT | ElevenLabsStreamingSTT | OpenAIStreamingSTT | NativelyProSTT | NvidiaNimStreamingSTT | AppleSpeechSTT | BarkSTT) & {
   /** Local models return whether a trailing final is now in flight; cloud providers return void. */
   finalize?: () => void | boolean;
   setAudioChannelCount?: (count: number) => void;
@@ -4089,6 +4090,11 @@ export class AppState {
       }
     } else if (sttProvider === 'apple-speech') {
       stt = new AppleSpeechSTT();
+    } else if (sttProvider === 'bark') {
+      // Mic ("user") and system audio ("interviewer") each get their own worker.
+      const bark = new BarkSTT();
+      bark.setChannel(speaker === 'interviewer' ? 'system' : 'mic');
+      stt = bark;
     } else if (sttProvider === 'local-whisper') {
       const { LocalWhisperSTT } = require('./audio/LocalWhisperSTT');
       const sm = SettingsManager.getInstance();
@@ -9038,6 +9044,13 @@ export class AppState {
     )
   }
 
+  /** Full-screen JPEG for the phone's crop tool; not saved or queued. */
+  public async captureScreenForPhone(): Promise<{ buffer: Buffer; width: number; height: number }> {
+    return this.withScreenshotCaptureSession('full', false, (session) =>
+      this.screenshotHelper.captureDisplayBuffer(this.getTargetDisplayForFullScreenshot(session))
+    )
+  }
+
   /**
    * Capture the current screen and immediately request AI analysis (the
    * "capture-and-process" single-trigger). Extracted so both the
@@ -11080,6 +11093,9 @@ if (process.env.THINKING_MATRIX === '1') {
   PhoneMirrorService.getInstance().setFormulaImageHandler((images, unreadable) => {
     void appState.attachFormulaImages(images, unreadable);
   });
+  // The phone's crop tool pulls a full-screen capture, crops it there and
+  // sends the crop back through /image.
+  PhoneMirrorService.getInstance().setScreenCaptureProvider(() => appState.captureScreenForPhone());
   // Answers reach the phone rendered as the overlay renders them: markdown,
   // tables, math and the [[GIST]] chip.
   PhoneMirrorService.getInstance().setAnswerRenderer(renderPhoneAnswer);

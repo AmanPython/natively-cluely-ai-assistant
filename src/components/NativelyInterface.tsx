@@ -23,6 +23,8 @@ import {
   Quote,
   RefreshCw,
   SlidersHorizontal,
+  FileText,
+  SquarePlus,
   X,
 } from 'lucide-react';
 import {
@@ -2194,6 +2196,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   const [attachedContext, setAttachedContext] = useState<
     Array<{ path: string; preview: string; formulaCapture?: string }>
   >([]);
+  const [sessionDocuments, setSessionDocuments] = useState<Array<{ id: string; fileName: string; pageCount?: number }>>([]);
   // Phone Mirror: preview → path of every screenshot the tray held lately, so a
   // sent question card (which keeps only previews) can name its screenshots.
   const phoneShotPathsRef = useRef(new Map<string, string>());
@@ -5482,6 +5485,17 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.sessionReferenceList) return;
+    void window.electronAPI.sessionReferenceList().then((items) => {
+      if (Array.isArray(items)) setSessionDocuments(items);
+    }).catch(() => {});
+    const offChanged = window.electronAPI.onSessionReferenceChanged?.((items) => {
+      setSessionDocuments(Array.isArray(items) ? items : []);
+    });
+    return () => { offChanged?.(); };
+  }, []);
+
   // Session Reset Listener - Clears UI when a NEW meeting starts
   useEffect(() => {
     if (!window.electronAPI?.onSessionReset) return;
@@ -7345,6 +7359,34 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     manualSubmitInFlightRef.current = false;
     directAssistHistoryRef.current = [];
   }, [cancelActiveChatStream]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onChatCleared) return;
+    const off = window.electronAPI.onChatCleared(() => {
+      resetChatState();
+    });
+    return () => { off(); };
+  }, [resetChatState]);
+
+  const handleStartNewChat = useCallback(async () => {
+    try {
+      await window.electronAPI?.startNewChat?.();
+    } catch (err) {
+      console.warn('[UI] startNewChat failed:', err);
+    }
+  }, []);
+
+  const handleAttachSessionDocument = useCallback(async () => {
+    try {
+      const result = await window.electronAPI?.sessionReferenceAttach?.();
+      if (result?.cancelled) return;
+      if (!result?.success) {
+        console.warn('[UI] attach document failed:', result?.error);
+      }
+    } catch (err) {
+      console.warn('[UI] attach document failed:', err);
+    }
+  }, []);
 
   const finalizeStreamingByIntent = useCallback(
     (intent: string, text: string) => {
@@ -12616,6 +12658,28 @@ Provide only the answer, nothing else.`;
                                     overlay no longer accidentally engage the
                                     tap and break inputs in Settings/Model
                                     Selector windows. */}
+                {sessionDocuments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5 px-0.5" data-stealth-ignore="true">
+                    {sessionDocuments.map((doc) => (
+                      <span
+                        key={doc.id}
+                        className="inline-flex items-center gap-1 max-w-[220px] rounded-md border border-border-subtle bg-bg-subtle/60 px-1.5 py-0.5 text-[10px] text-text-secondary"
+                        title={t('Goes with the next answer')}
+                      >
+                        <FileText className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{doc.pageCount ? `${doc.fileName} · ${doc.pageCount}p` : doc.fileName}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 text-text-muted hover:text-text-primary"
+                          aria-label={t('Remove') + ' ' + doc.fileName}
+                          onClick={() => { void window.electronAPI?.sessionReferenceRemove?.(doc.id); }}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div
                   className="relative group"
                   data-stealth-engage="true"
@@ -12897,6 +12961,28 @@ Provide only the answer, nothing else.`;
                       </span>
                     </button>
 
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => { void handleAttachSessionDocument(); }}
+                        title={t('Attach a PDF or text file')}
+                        className="w-7 h-7 rounded-[9px] flex items-center justify-center interaction-base interaction-press overlay-bare-icon"
+                        data-stealth-ignore="true"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => { void handleStartNewChat(); }}
+                        title={t('New chat')}
+                        className="w-7 h-7 rounded-[9px] flex items-center justify-center interaction-base interaction-press overlay-bare-icon"
+                        data-stealth-ignore="true"
+                      >
+                        <SquarePlus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                     <div className="relative">
                       <button
                         data-settings-toggle="true"

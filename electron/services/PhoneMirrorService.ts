@@ -13,6 +13,10 @@ import { sanitizeContextEnvelope } from './browser-context/sanitize';
 import { describeUnreadableFormulas, PAGE_CAPTURE_FALLBACK_CHANNEL } from './pageCaptureFallback';
 import { isPhoneImagePath } from '../utils/phoneImage';
 import { splitGistLine, stripGistTrailer } from '../../src/lib/displayMarkup';
+import { SessionReferenceStore, type SessionReferenceMeta } from './SessionReferenceStore';
+import { extractSafeDocumentText, SAFE_DOCUMENT_EXTENSIONS } from './SafeDocumentTextExtractor';
+import fs from 'fs';
+import path from 'path';
 
 export interface PhoneMirrorInfo {
   running: boolean;
@@ -78,7 +82,9 @@ export type StreamEvent =
     }
   | { type: 'meeting'; active: boolean; reset: boolean }
   | { type: 'attachments'; items: PhoneAttachment[] }
-  | { type: 'images'; id: string; images: PhoneAttachment[]; createdAt: string };
+  | { type: 'images'; id: string; images: PhoneAttachment[]; createdAt: string }
+  | { type: 'documents'; items: PhoneDocument[] }
+  | { type: 'new-chat' };
 
 /**
  * A desktop screenshot as the phone sees it: an opaque id and a small JPEG/PNG
@@ -87,6 +93,13 @@ export type StreamEvent =
 export interface PhoneAttachment {
   id: string;
   thumb: string;
+}
+
+/** A session document the phone attached (PDF / text). Paths stay on this machine. */
+export interface PhoneDocument {
+  id: string;
+  fileName: string;
+  pageCount?: number;
 }
 
 /**
@@ -119,7 +132,9 @@ export type PhoneCommand =
   | { type: 'action'; action: string }
   | { type: 'screenshot' }
   /** Take a screenshot or photo off the overlay's tray (the phone names it by id; listeners get its path). */
-  | { type: 'detach'; path: string };
+  | { type: 'detach'; path: string }
+  | { type: 'new-chat' }
+  | { type: 'detach-document'; id: string };
 
 /**
  * Metadata the companion extension sends alongside a captured DOM (drives the
@@ -172,6 +187,8 @@ const PHONE_TRANSCRIPT_SPEAKERS = new Set(['interviewer']);
 // this cap only has to stop abuse, not fit an original 48 MP photo.
 const PHONE_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 const PHONE_IMAGE_HANDLER_TIMEOUT_MS = 20_000;
+const PHONE_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+const PHONE_DOCUMENT_HANDLER_TIMEOUT_MS = 60_000;
 // Desktop screenshots on the phone: the overlay's thumbnails (480 px JPEG,
 // ~30-60 kB). Main downscales anything bigger before it gets here; this cap is
 // the backstop. The overlay keeps its last 5, so does the phone's tray.
@@ -273,6 +290,8 @@ export class PhoneMirrorService {
   private statusListeners = new Set<StatusListener>();
   private phoneCommandListeners = new Set<(cmd: PhoneCommand) => void>();
   private phoneImageHandler: ((image: PhoneImage) => Promise<unknown>) | null = null;
+  private screenCaptureProvider: (() => Promise<{ buffer: Buffer; width: number; height: number }>) | null = null;
+  private unsubSessionDocs: (() => void) | null = null;
   private answerRenderer: PhoneAnswerRenderer | null = null;
   // Phone answers still streaming when a new meeting started. They belong to
   // the old session: their late tokens / done / error are not sent or kept.
@@ -679,6 +698,28 @@ export class PhoneMirrorService {
     return [...this.attachmentPaths];
   }
 
+  /** Session PDFs/text the phone and overlay attached for this conversation. */
+  getDocuments(): PhoneDocument[] {
+    return SessionReferenceStore.getInstance().list();
+  }
+
+  /** Drop session documents (New chat, or a test that must not leak files). */
+  clearSessionDocuments(): void {
+    SessionReferenceStore.getInstance().clear();
+  }
+
+  /**
+   * New chat: drop the mirrored conversation (not the meeting transcript).
+   * Session documents are cleared by the caller via SessionReferenceStore.
+   */
+  publishNewChat(): void {
+    this.history = [];
+    this.livePartial = null;
+    this.awaitingAnswers.clear();
+    this.cancelLiveRender();
+    if (this.isRunning()) this.broadcast({ type: 'new-chat' });
+  }
+
   /** The id a screenshot is known by on the phone (made up now if the tray has not listed it yet). */
   private shotIdFor(path: string): string {
     const known = this.shots.get(path);
@@ -848,6 +889,13 @@ export class PhoneMirrorService {
     this.phoneImageHandler = handler;
     return () => {
       if (this.phoneImageHandler === handler) this.phoneImageHandler = null;
+    };
+  }
+
+  setScreenCaptureProvider(provider: (() => Promise<{ buffer: Buffer; width: number; height: number }>) | null): () => void {
+    this.screenCaptureProvider = provider;
+    return () => {
+      if (this.screenCaptureProvider === provider) this.screenCaptureProvider = null;
     };
   }
 
@@ -1427,6 +1475,11 @@ export class PhoneMirrorService {
     );
     wss.on('connection', (ws, req) => this.handleWsConnection(ws, req));
 
+    this.unsubSessionDocs?.();
+    this.unsubSessionDocs = SessionReferenceStore.getInstance().onChange((items) => {
+      if (this.isRunning()) this.broadcast({ type: 'documents', items });
+    });
+
     if (persistEnabled) {
       SettingsManager.getInstance().set('phoneMirrorEnabled', true);
       SettingsManager.getInstance().set('phoneMirrorExposeOnLan', exposeOnLan);
@@ -1439,6 +1492,8 @@ export class PhoneMirrorService {
   }
 
   private async _teardown(): Promise<void> {
+    this.unsubSessionDocs?.();
+    this.unsubSessionDocs = null;
     // Cancel any pending debounced status emit so it doesn't fire after teardown.
     if (this.statusDebounceTimer !== null) {
       clearTimeout(this.statusDebounceTimer);
@@ -1806,6 +1861,16 @@ export class PhoneMirrorService {
       return;
     }
 
+    if (fullUrl.pathname === '/screenshot-full') {
+      this.handleScreenCaptureRequest(req, res, provided || '');
+      return;
+    }
+
+    if (fullUrl.pathname === '/document') {
+      this.handleDocumentUpload(req, res, provided || '');
+      return;
+    }
+
     if (fullUrl.pathname !== '/' && fullUrl.pathname !== '/index.html') {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Not found');
@@ -1924,6 +1989,140 @@ export class PhoneMirrorService {
     });
   }
 
+  /**
+   * POST /document?t=<phone token>, body = the file bytes, X-Filename = basename.
+   * Phone token only. Extracted text becomes a session reference for this chat.
+   */
+  private handleDocumentUpload(req: http.IncomingMessage, res: http.ServerResponse, provided: string): void {
+    const reply = (status: number, body: Record<string, unknown>, extra?: Record<string, string>) => {
+      if (res.headersSent) return;
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...extra });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method !== 'POST') {
+      reply(405, { ok: false, error: 'method' }, { Allow: 'POST' });
+      req.resume();
+      return;
+    }
+    if (!provided || !this.token || !timingSafeEqualStr(provided, this.token)) {
+      reply(401, { ok: false, error: 'token' });
+      req.resume();
+      return;
+    }
+    const fileName = safePhoneDocumentName(req.headers['x-filename']);
+    if (!fileName) {
+      reply(400, { ok: false, error: 'filename' });
+      req.resume();
+      return;
+    }
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > PHONE_DOCUMENT_MAX_BYTES) {
+      reply(413, { ok: false, error: 'too-large' });
+      req.socket.destroy();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let aborted = false;
+    req.on('data', (chunk: Buffer) => {
+      if (aborted) return;
+      total += chunk.length;
+      if (total > PHONE_DOCUMENT_MAX_BYTES) {
+        aborted = true;
+        reply(413, { ok: false, error: 'too-large' });
+        req.socket.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('error', () => {
+      aborted = true;
+    });
+    req.on('end', () => {
+      if (aborted) return;
+      const data = Buffer.concat(chunks, total);
+      if (data.length === 0) {
+        reply(400, { ok: false, error: 'empty' });
+        return;
+      }
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), PHONE_DOCUMENT_HANDLER_TIMEOUT_MS);
+      });
+      Promise.race([this.ingestUploadedDocument(fileName, data), timeout])
+        .then((doc) => {
+          console.log(`[PhoneMirror] phone document received (${doc.fileName}, ${data.length} bytes)`);
+          reply(200, { ok: true, id: doc.id, fileName: doc.fileName, ...(doc.pageCount ? { pages: doc.pageCount } : {}) });
+        })
+        .catch((err: any) => {
+          console.warn('[PhoneMirror] phone document not ingested:', err?.message || err);
+          const msg = String(err?.message || '');
+          if (/unsupported file type/i.test(msg)) reply(415, { ok: false, error: 'unsupported' });
+          else if (/no extractable text/i.test(msg)) reply(422, { ok: false, error: 'empty-text' });
+          else if (/exceeds/i.test(msg)) reply(413, { ok: false, error: 'too-large' });
+          else reply(500, { ok: false, error: 'not-ingested' });
+        })
+        .finally(() => {
+          if (timer) clearTimeout(timer);
+        });
+    });
+  }
+
+  private async ingestUploadedDocument(fileName: string, data: Buffer): Promise<SessionReferenceMeta> {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'natively-phone-doc-'));
+    const filePath = path.join(dir, fileName);
+    try {
+      await fs.promises.writeFile(filePath, data);
+      const extracted = await extractSafeDocumentText(filePath);
+      return SessionReferenceStore.getInstance().add({
+        fileName: extracted.fileName,
+        content: extracted.content,
+        pageCount: extracted.pageCount,
+      });
+    } finally {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  private async handleScreenCaptureRequest(req: http.IncomingMessage, res: http.ServerResponse, provided: string): Promise<void> {
+    const reply = (status: number, body: Record<string, unknown>, extra?: Record<string, string>) => {
+      if (res.headersSent) return;
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...extra });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method !== 'GET') {
+      reply(405, { ok: false, error: 'method' }, { Allow: 'GET' });
+      return;
+    }
+    if (!provided || !this.token || !timingSafeEqualStr(provided, this.token)) {
+      reply(401, { ok: false, error: 'token' });
+      return;
+    }
+    if (!this.screenCaptureProvider) {
+      reply(503, { ok: false, error: 'screen_capture_unavailable' });
+      return;
+    }
+    try {
+      const result = await this.screenCaptureProvider();
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': String(result.buffer.length),
+        'Cache-Control': 'no-store',
+        'X-Screen-Width': String(result.width),
+        'X-Screen-Height': String(result.height),
+      });
+      res.end(result.buffer);
+    } catch (err: any) {
+      console.error('[PhoneMirror] capture error:', err);
+      reply(500, { ok: false, error: err?.message || 'capture_failed' });
+    }
+  }
+
   private handleUpgrade(req: http.IncomingMessage, socket: any, head: Buffer): void {
     const remote = req.socket.remoteAddress || '0.0.0.0';
     if (!this.rateAllow(remote)) {
@@ -2015,6 +2214,7 @@ export class PhoneMirrorService {
       );
       // Always sent, so a phone coming back never keeps a tray the desktop has since cleared.
       ws.send(JSON.stringify({ type: 'attachments', items: this.attachments }));
+      ws.send(JSON.stringify({ type: 'documents', items: this.getDocuments() }));
     } catch (_) {
       /* client may be gone already */
     }
@@ -2087,6 +2287,10 @@ export class PhoneMirrorService {
           validated = { type: 'action', action: c.action };
         } else if (c.type === 'screenshot') {
           validated = { type: 'screenshot' };
+        } else if (c.type === 'new-chat') {
+          validated = { type: 'new-chat' };
+        } else if (c.type === 'detach-document' && typeof c.id === 'string' && /^[0-9a-f-]{36}$/.test(c.id)) {
+          validated = { type: 'detach-document', id: c.id };
         } else if (c.type === 'detach' && typeof c.id === 'string' && /^[0-9a-f-]{36}$/.test(c.id)) {
           // The phone only ever knows ids; the path stays on this side.
           const path = this.shotPath(c.id);
@@ -2418,6 +2622,16 @@ export function formulaImagesOf(raw: unknown, rawRanges?: unknown): FormulaImage
     out.push({ data, ...kind, ...(formulas ? { formulas } : {}) });
   }
   return out;
+}
+
+/** Basename + allowed extension only. Header values never become a path. */
+function safePhoneDocumentName(raw: string | string[] | undefined): string | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const name = path.basename(String(value || '').replace(/\\/g, '/')).trim();
+  if (!name || name.length > 180 || name.includes('..')) return null;
+  const ext = path.extname(name).toLowerCase();
+  if (!SAFE_DOCUMENT_EXTENSIONS.has(ext)) return null;
+  return name;
 }
 
 /** What an upload really is, from its leading bytes; null when not an image we take. */
