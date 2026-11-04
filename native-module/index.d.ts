@@ -192,28 +192,6 @@ export interface CallTreeWindow {
   nodes: Array<CallTreeNode>
 }
 
-export interface OutputDevicePeak {
-  id: string
-  peak: number
-}
-
-export interface OutputRouteProbe {
-  /** Live output peak (0.0–1.0) of every active render endpoint. */
-  peaks: Array<OutputDevicePeak>
-  /** eConsole default render endpoint. */
-  defaultId: string
-  /** eCommunications default render endpoint — where Teams/Zoom/Discord play. */
-  commsId: string
-}
-
-/**
- * Windows: where audio is actually playing right now (see
- * speaker::windows::output_device_peaks) plus both role defaults. Empty
- * elsewhere — macOS has no per-device output meter, and JS treats an empty
- * probe as "no evidence".
- */
-export declare function probeOutputRoutes(): Promise<OutputRouteProbe>
-
 /**
  * Event payload delivered to the JS callback. Crossing the V8 boundary is
  * not free, so we keep this struct flat (no nested objects) and only include
@@ -354,12 +332,34 @@ export interface MicUser {
   deviceName?: string
 }
 
+export interface OutputDevicePeak {
+  id: string
+  peak: number
+}
+
+export interface OutputRouteProbe {
+  /** Live output peak (0.0–1.0) of every active render endpoint. */
+  peaks: Array<OutputDevicePeak>
+  /** eConsole default render endpoint. */
+  defaultId: string
+  /** eCommunications default render endpoint — where Teams/Zoom/Discord play. */
+  commsId: string
+}
+
 export interface OverlayBoundsInput {
   x: number
   y: number
   width: number
   height: number
 }
+
+/**
+ * Windows: where audio is actually playing right now (see
+ * speaker::windows::output_device_peaks) plus both role defaults. Empty
+ * elsewhere — macOS has no per-device output meter, and JS treats an empty
+ * probe as "no evidence".
+ */
+export declare function probeOutputRoutes(): Promise<unknown>
 
 /**
  * The app's windows as flattened accessibility trees; null where this OS has

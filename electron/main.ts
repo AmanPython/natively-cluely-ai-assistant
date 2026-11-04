@@ -1312,6 +1312,8 @@ import { NativelyProSTT } from "./audio/NativelyProSTT"
 import { NvidiaNimStreamingSTT } from "./audio/NvidiaNimStreamingSTT"
 import { AppleSpeechSTT } from "./audio/AppleSpeechSTT"
 import { BarkSTT } from "./audio/BarkSTT"
+import { CrossChannelEchoFilter } from "./audio/CrossChannelEchoFilter"
+import { MicEchoGate } from "./audio/MicEchoGate"
 import { punctuationSourceFor } from "./llm/punctuationProvenance"
 import { configureVisionCapabilityStore } from "./llm/visionCapabilityStore"
 import { ThemeManager } from "./ThemeManager"
@@ -1591,6 +1593,8 @@ export class AppState {
   // Pause transcription from the notepad (services/meeting/transcriptionPause.ts):
   // both capture paths below send silence while paused. Reset by every meeting start and end.
   private readonly transcriptionPause = new TranscriptionPause();
+  private readonly crossChannelEcho = new CrossChannelEchoFilter();
+  private readonly micEchoGate = new MicEchoGate();
   private readonly _transcriptionPauseListener = this.transcriptionPause.onChange((paused) => {
     try { this.meetingAutoStop.setPaused(paused); } catch { /* auto-stop never blocks a pause */ }
     this.sendToMeetingSurfaces('meeting-transcription-paused', { paused });
@@ -4190,6 +4194,16 @@ export class AppState {
       // Any text proves the connection works: closes an open outage (sttGapRecovery.ts).
       this.sttGap.onTranscript(gapSource, segment.text, segment.isFinal);
 
+      // Laptop speakers: the mic re-transcribes the meeting. Keep the clean
+      // system-audio copy and strip it from the mic channel (CrossChannelEchoFilter.ts).
+      if (speaker === 'interviewer') {
+        this.crossChannelEcho.noteInterviewer(segment.text);
+      } else {
+        const ownSpeech = this.crossChannelEcho.filterUser(segment.text);
+        if (!ownSpeech.trim()) return;
+        if (ownSpeech !== segment.text) segment = { ...segment, text: ownSpeech };
+      }
+
       this.intelligenceManager.handleTranscript({
         speaker: speaker,
         ...(speakerId ? { speakerId } : {}),
@@ -4790,6 +4804,7 @@ export class AppState {
         // Paused from the notepad: silence of the same length (transcriptionPause.ts).
         chunk = this.transcriptionPause.gate(chunk);
         this.audioLevelMeter.note('system', this.transcriptionPause.isPaused() ? 0 : audioLevel(chunk));
+        this.micEchoGate.noteSystem(chunk, now);
         this.googleSTT?.write(chunk);
         // Gap recovery's ring buffer (sttGapRecovery.ts): a copy, nothing waits.
         if (this.sttGap.isActive()) {
@@ -5024,16 +5039,19 @@ export class AppState {
         // the same length, so the stream keeps its timing. The checks above
         // still read the real chunk.
         // Paused from the notepad, the same: silence (transcriptionPause.ts).
-        const heard = this.transcriptionPause.gate(meetingMuteSync.gate(chunk));
-        this.audioLevelMeter.note('mic', this.transcriptionPause.isPaused() ? 0 : audioLevel(heard));
-        this.googleSTT_User?.write(heard);
-        // Gap recovery's ring buffer (sttGapRecovery.ts): a copy, nothing waits.
-        if (this.sttGap.isActive()) {
-          if (!gapRate) gapRate = capture.getSampleRate();
-          this.sttGap.onAudio('mic', heard, gapRate);
+        const gated = this.transcriptionPause.gate(meetingMuteSync.gate(chunk));
+        this.audioLevelMeter.note('mic', this.transcriptionPause.isPaused() ? 0 : audioLevel(gated));
+        // Speakers re-recorded by the mic are silenced, a short delay later (MicEchoGate.ts).
+        for (const heard of this.micEchoGate.pushMic(gated, now)) {
+          this.googleSTT_User?.write(heard);
+          // Gap recovery's ring buffer (sttGapRecovery.ts): a copy, nothing waits.
+          if (this.sttGap.isActive()) {
+            if (!gapRate) gapRate = capture.getSampleRate();
+            this.sttGap.onAudio('mic', heard, gapRate);
+          }
+          // A stand-in while the provider is down (sttFailover.ts); nothing otherwise.
+          this._sttFailover.mic?.write(heard);
         }
-        // A stand-in while the provider is down (sttFailover.ts); nothing otherwise.
-        this._sttFailover.mic?.write(heard);
       }
     });
     capture.on('sample_rate_changed', (rate: number) => {

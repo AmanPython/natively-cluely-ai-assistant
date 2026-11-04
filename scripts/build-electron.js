@@ -154,7 +154,7 @@ const buildOptions = {
     '.ts': 'ts',
     '.js': 'js',
   },
-  plugins: CORE_SMOKE ? [coreSmokePremiumExternalPlugin] : [],
+  plugins: (CORE_SMOKE || !fs.existsSync(premiumDir) || fs.readdirSync(premiumDir).length === 0) ? [coreSmokePremiumExternalPlugin] : [],
   // EVAL-ONLY DNS fix, injected at the very top of every output bundle (runs
   // BEFORE esbuild's deferred __esm module initializers — a top-level statement
   // inside main.ts gets wrapped in a lazy init that never ran at process start).

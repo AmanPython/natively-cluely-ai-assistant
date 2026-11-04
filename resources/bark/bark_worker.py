@@ -15,7 +15,12 @@ import numpy as np
 
 HOME = os.environ.get("NATIVELY_BARK_HOME", os.path.expanduser("~/.natively-bark"))
 BARK_DIR = os.path.join(HOME, "bark-3.0")
-CACHE_DIR = os.path.join(HOME, "mlx_4bit")
+# NATIVELY_BARK_BITS=8 (or 16) trades RAM and start-up time for accuracy; each
+# precision keeps its own converted-model cache.
+BITS = int(os.environ.get("NATIVELY_BARK_BITS", "4"))
+if BITS not in (4, 8, 16):
+    BITS = 4
+CACHE_DIR = os.path.join(HOME, f"mlx_{BITS}bit")
 
 FRAME = 480                 # 30 ms @ 16 kHz
 SILENCE_END_S = 0.9
@@ -83,7 +88,7 @@ def main():
     sys.path.insert(0, BARK_DIR)
     import bark_mlx, soxr
     try:
-        model = bark_mlx.load_model(os.path.join(BARK_DIR, "model.bark"), bits=4, cache_dir=CACHE_DIR)
+        model = bark_mlx.load_model(os.path.join(BARK_DIR, "model.bark"), bits=BITS, cache_dir=CACHE_DIR)
     except Exception as e:  # noqa: BLE001
         send({"type": "error", "message": f"Cannot load Bark model from {BARK_DIR}: {e}"})
         return 1
