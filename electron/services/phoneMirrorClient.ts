@@ -837,6 +837,8 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
         mask-image: linear-gradient(to right, transparent 0, #000 var(--gl), #000 calc(100% - 28px), transparent 100%);
       }
       .chips::-webkit-scrollbar { display: none; }
+      .direct-toggle[aria-pressed="true"] { background: var(--accent, #4f7cff); color: #fff; border-color: transparent; }
+      .direct-toggle { flex: none; }
       .chip {
         position: relative;
         flex: 0 0 auto;
@@ -1581,6 +1583,7 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5h6.5L19 9v11.5a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20.5v-15A2 2 0 0 1 7 3.5z"/><path d="M13.5 3.5V9H19"/><path d="M9 13.5h6M9 17h4"/></svg>
             </label>
             <input class="sr-only" id="docInput" type="file" accept=".pdf,.txt,.md,.markdown,.docx,.csv,.json,.html,.htm" multiple tabindex="-1" aria-hidden="true" />
+            <button class="chip direct-toggle" id="directBtn" type="button" aria-pressed="false" title="Send your text to the desktop as-is, without AI">Direct</button>
             <div class="field">
               <label class="sr-only" for="input">Message your desktop</label>
               <textarea id="input" rows="1" maxlength="2000" placeholder="Ask anything" enterkeyhint="send" autocomplete="off" autocorrect="on" spellcheck="true"></textarea>
@@ -1955,6 +1958,8 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
         var jumpCount = byId('jumpCount');
         var input = byId('input');
         var sendBtn = byId('sendBtn');
+        var directBtn = byId('directBtn');
+        var directMode = false;
         var captureBtn = byId('captureBtn');
         var cropBtn = byId('cropBtn');
         var cropperModal = byId('cropperModal');
@@ -3422,7 +3427,7 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           docBtn.classList.toggle('is-disabled', !ok);
           docBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
           sendBtn.disabled = !ok || !input.value.trim();
-          input.placeholder = ok ? 'Ask anything' : 'Waiting for your desktop…';
+          input.placeholder = ok ? (directMode ? 'Send to desktop — no AI' : 'Ask anything') : 'Waiting for your desktop…';
         }
         function sendCommand(cmd) {
           if (!isLive()) return false;
@@ -3499,10 +3504,28 @@ export const PHONE_MIRROR_HTML = `<!doctype html>
           submit();
         });
         sendBtn.addEventListener('click', submit);
+        // Direct: the text goes to the desktop overlay as-is, never to a model.
+        // 20000 mirrors PHONE_DIRECT_MAX_CHARS in PhoneMirrorService.
+        directBtn.addEventListener('click', function () {
+          directMode = !directMode;
+          directBtn.setAttribute('aria-pressed', directMode ? 'true' : 'false');
+          input.maxLength = directMode ? 20000 : 2000;
+          paintControls();
+          input.focus();
+        });
         function submit() {
           var text = input.value.trim();
           if (!text) return;
           if (!isLive()) { showToast('Not connected to your desktop', true); return; }
+          if (directMode) {
+            if (!sendCommand({ type: 'direct', message: text })) { showToast('Not connected to your desktop', true); return; }
+            input.value = '';
+            autoGrow();
+            paintControls();
+            flashIcon(sendBtn, 900);
+            showToast('Sent to desktop', false);
+            return;
+          }
           var entry = { key: 'u:local:' + (++localSeq), t: Date.now(), kind: 'user', content: text, state: 'sending', local: true };
           if (!sendCommand({ type: 'chat', message: text })) { showToast('Not connected to your desktop', true); return; }
           input.value = '';

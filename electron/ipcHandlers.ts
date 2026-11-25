@@ -31,6 +31,8 @@ import { AppState } from './main';
 import { CodexCliService, getCodexAuthStatus, isCodexAuthError } from './services/CodexCliService';
 import { describeServiceAccountRejection } from './services/googleServiceAccount';
 import { PHONE_THUMB_MAX_CHARS, PhoneMirrorService } from './services/PhoneMirrorService';
+import { PhoneMirrorTunnel, buildTunnelPairingUrl } from './services/PhoneMirrorTunnel';
+import QRCode from 'qrcode';
 import { sanitizeContextEnvelope } from './services/browser-context/sanitize';
 import { formatEnvelopeForPrompt } from './services/browser-context/formatEnvelopeForPrompt';
 import { BrowserMetadataClassifierService } from './services/browser-context/BrowserMetadataClassifierService';
@@ -20200,6 +20202,86 @@ export function initializeIpcHandlers(appState: AppState): void {
     console.warn('[IPC] skills:reap-stages startup hook error:', e?.message || e);
   }
 
+  // ── Phone Mirror → Internet (Cloudflare quick tunnel) ───────────────────
+  const phoneTunnel = new PhoneMirrorTunnel({
+    platform: process.platform,
+    env: process.env,
+    resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    userDataDir: app.getPath('userData'),
+  });
+  let tunnelPort = 0;
+  let tunnelQrFor: string | null = null;
+  let tunnelQr: string | null = null;
+
+  const tunnelSnapshot = async () => {
+    const status = phoneTunnel.getStatus();
+    let pairingUrl: string | null = null;
+    try {
+      const info = await PhoneMirrorService.getInstance().snapshot();
+      pairingUrl = buildTunnelPairingUrl(status.url, info.token);
+    } catch {
+      /* mirror not running */
+    }
+    if (pairingUrl && tunnelQrFor !== pairingUrl) {
+      try {
+        tunnelQr = await QRCode.toDataURL(pairingUrl, { errorCorrectionLevel: 'M', margin: 1, scale: 6 });
+      } catch {
+        tunnelQr = null;
+      }
+      tunnelQrFor = pairingUrl;
+    }
+    return { ...status, pairingUrl, qrDataUrl: pairingUrl ? tunnelQr : null };
+  };
+  const broadcastTunnel = async () => {
+    const snap = await tunnelSnapshot();
+    const wins = [appState.getMainWindow(), (appState as any).settingsWindowHelper?.getWindow?.()];
+    for (const w of wins) {
+      if (w && !w.isDestroyed()) w.webContents.send('phone-mirror:tunnel-status', snap);
+    }
+  };
+  phoneTunnel.onStatus(() => void broadcastTunnel());
+  // The tunnel only ever points at a running mirror: stop it when the mirror
+  // stops or restarts on another port; a token reset just changes the link.
+  PhoneMirrorService.getInstance().onStatusChange((info) => {
+    if (phoneTunnel.getStatus().state === 'off') return;
+    if (!info.running || (tunnelPort && info.port !== tunnelPort)) {
+      void phoneTunnel.stop();
+    } else {
+      void broadcastTunnel();
+    }
+  });
+  app.on('before-quit', () => void phoneTunnel.stop());
+
+  safeHandle('phone-mirror:tunnel-get', async () => tunnelSnapshot());
+
+  safeHandle('phone-mirror:tunnel-enable', async () => {
+    const info = await PhoneMirrorService.getInstance().snapshot();
+    if (!info.running) return { error: 'Turn on Phone Mirror first.' };
+    if (nativePromptsBlocked(() => appState.getUndetectable())) {
+      return { error: UNDETECTABLE_REFUSAL_MESSAGES.internetAccess };
+    }
+    const win = appState.getMainWindow() ?? undefined;
+    const opts: Electron.MessageBoxSyncOptions = {
+      type: 'warning',
+      message: 'Allow internet access?',
+      detail:
+        'Natively will open a public Cloudflare link to Phone Mirror. Anyone with the full link (it contains your private token) can follow your live answers from anywhere, and the traffic passes through Cloudflare. Continue?',
+      buttons: ['Cancel', 'Allow internet access'],
+      defaultId: 0,
+      cancelId: 0,
+    };
+    const response = win ? dialog.showMessageBoxSync(win, opts) : dialog.showMessageBoxSync(opts);
+    if (response !== 1) return { declined: true };
+    tunnelPort = info.port;
+    await phoneTunnel.start(info.port);
+    return tunnelSnapshot();
+  });
+
+  safeHandle('phone-mirror:tunnel-disable', async () => {
+    await phoneTunnel.stop();
+    return tunnelSnapshot();
+  });
+
   safeHandle('phone-mirror:get-info', async () => {
     return PhoneMirrorService.getInstance().snapshot();
   });
@@ -20516,6 +20598,35 @@ export function initializeIpcHandlers(appState: AppState): void {
           // Window is tearing down; keep delivering to any other valid surface.
         }
       }
+    } else if (cmd.type === 'direct') {
+      // "Direct": show what the web page typed in the live overlay as a
+      // formatted card, with NO model call. Saved to the session as
+      // conversational (never meeting evidence) and echoed back to the page
+      // as confirmation.
+      const text = cmd.message;
+      try {
+        appState.getIntelligenceManager().addAssistantMessage(text, {
+          policy: 'store_conversational_only',
+          reason: 'phone-direct',
+        });
+      } catch (e: any) {
+        console.warn('[PhoneMirror] direct: could not save to session:', e?.message || e);
+      }
+      const directId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const sentTo = new Set<number>();
+      const helper = appState.getWindowHelper();
+      for (const w of [helper.getOverlayWindow(), helper.getLauncherWindow(), win]) {
+        if (!w || w.isDestroyed() || sentTo.has(w.id)) continue;
+        sentTo.add(w.id);
+        try {
+          w.webContents.send('phone-mirror:incoming-direct', { id: directId, text });
+        } catch {
+          /* window tearing down */
+        }
+      }
+      try {
+        PhoneMirrorService.getInstance().publishDirectMessage(text);
+      } catch (_) {}
     } else if (cmd.type === 'chat') {
       // Stream a phone-initiated chat through the LLM exactly like gemini-chat-stream
       // but without requiring a renderer event sender. Tokens are pushed directly to

@@ -1,10 +1,10 @@
-import { AlertCircle, BookOpen, Braces, Briefcase, Check, ClipboardPaste, Copy, Eye, EyeOff, FileText, HelpCircle, KeyRound, Lock, Paperclip, QrCode, RefreshCw, Smartphone, Sparkles, Wifi } from 'lucide-react';
+import { AlertCircle, BookOpen, Globe, Braces, Briefcase, Check, ClipboardPaste, Copy, Eye, EyeOff, FileText, HelpCircle, KeyRound, Lock, Paperclip, QrCode, RefreshCw, Smartphone, Sparkles, Wifi } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResolvedTheme } from '../../hooks/useResolvedTheme';
 import { useT } from '../../i18n';
 import { extensionPairingSatisfied, isPartialPhoneMirrorStatus, mergePhoneMirrorStatus } from '../../lib/phoneMirrorStatusMerge.mjs';
-import type { BrowserContextSettings, PhoneMirrorInfo } from '../../types/electron';
+import type { BrowserContextSettings, PhoneMirrorInfo, PhoneMirrorTunnelInfo } from '../../types/electron';
 import { LiquidGlassBadge } from '../../ui-components/LiquidGlassBadge';
 import { LiquidGlassButton } from '../../ui-components/LiquidGlassButton';
 import { isMac } from '../../utils/platformUtils';
@@ -603,6 +603,39 @@ export const PhoneMirrorSettings: React.FC = () => {
   // Smart Browser Context save errors — shown under their own section.
   const [ctxError, setCtxError] = useState<string | null>(null);
   const [copied, copyLink] = useCopyFlash();
+  // Internet access (Cloudflare quick tunnel) — state lives in main; this pane mirrors it.
+  const [tunnel, setTunnel] = useState<PhoneMirrorTunnelInfo | null>(null);
+  const [tunnelBusy, setTunnelBusy] = useState(false);
+  const [tunnelNote, setTunnelNote] = useState<string | null>(null);
+  const [tunnelCopied, copyTunnelLink] = useCopyFlash();
+  useEffect(() => {
+    let alive = true;
+    window.electronAPI.phoneMirrorTunnelGet?.().then((s) => alive && s && setTunnel(s)).catch(() => {});
+    const off = window.electronAPI.onPhoneMirrorTunnelStatus?.((s) => setTunnel(s));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, []);
+  const tunnelOn = tunnel?.state === 'starting' || tunnel?.state === 'running';
+  const onToggleTunnel = useCallback(async () => {
+    if (tunnelBusy) return;
+    setTunnelBusy(true);
+    setTunnelNote(null);
+    try {
+      if (tunnelOn) {
+        setTunnel(await window.electronAPI.phoneMirrorTunnelDisable());
+      } else {
+        const res = await window.electronAPI.phoneMirrorTunnelEnable();
+        if (res && 'error' in res) setTunnelNote(res.error);
+        else if (res && !('declined' in res)) setTunnel(res);
+      }
+    } catch (e: any) {
+      setTunnelNote(e?.message || 'Could not change internet access');
+    } finally {
+      setTunnelBusy(false);
+    }
+  }, [tunnelBusy, tunnelOn]);
   // Companion browser-extension pairing: countdown (seconds left) while the 60s
   // one-click /pair window is open after "Connect browser extension".
   // The parent holds only the deadline; the countdown ticks itself, so the pane
@@ -1152,6 +1185,60 @@ export const PhoneMirrorSettings: React.FC = () => {
                       <p className="flex items-start gap-2 pt-1 text-xs text-text-secondary">
                         <Lock size={14} className="mt-px shrink-0" />
                         <span>{t('The link carries a private token. Anyone who has it can open the mirror.')}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Collapse>
+            </CompanionRow>
+
+            <CompanionRow
+              icon={<Globe size={20} />}
+              title={t('Allow internet access')}
+              badge={
+                tunnel?.state === 'starting'
+                  ? tag('tunnel-starting', t('Creating link'), 'sky', true)
+                  : tunnel?.state === 'running'
+                    ? tag('tunnel-running', t('Live'), 'green')
+                    : null
+              }
+              descriptionKey={tunnel?.state ?? 'off'}
+              description={
+                tunnel?.state === 'starting'
+                  ? t('Creating your Cloudflare link…')
+                  : tunnel?.state === 'running'
+                    ? t('Open the mirror from any network.')
+                    : t('Follow answers from anywhere through a Cloudflare tunnel.')
+              }
+              control={<Switch checked={tunnelOn} onChange={() => void onToggleTunnel()} label={t('Allow internet access')} disabled={tunnelBusy} />}
+            >
+              <Collapse open={tunnel?.state === 'error' || !!tunnelNote}>
+                <div className="pb-3">
+                  <div role="alert" className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed ${dangerTone}`}>
+                    <AlertCircle size={14} className="mt-px shrink-0" />
+                    <span>{tunnelNote || tunnel?.error}</span>
+                  </div>
+                </div>
+              </Collapse>
+              <Collapse open={tunnel?.state === 'running' && !!tunnel.pairingUrl}>
+                <div className="pb-3 space-y-2">
+                  <div className="bg-bg-card rounded-xl border border-border-subtle p-4 flex flex-wrap items-start gap-4">
+                    {tunnel?.qrDataUrl && (
+                      <div className="shrink-0 w-[126px] h-[126px] rounded-lg bg-white p-1.5 border border-black/5">
+                        <img src={tunnel.qrDataUrl} alt={t('Internet pairing QR code')} className="block w-28 h-28" draggable={false} />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-[200px] space-y-2">
+                      <label className="text-xs font-medium text-text-secondary uppercase tracking-wide block">
+                        {t('Internet link')}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {secretField(tunnel?.pairingUrl ?? null)}
+                        {copyButton(tunnel?.pairingUrl ?? null, tunnelCopied, copyTunnelLink, t('Copy internet link'))}
+                      </div>
+                      <p className="flex items-start gap-2 pt-1 text-xs text-text-secondary">
+                        <Lock size={14} className="mt-px shrink-0" />
+                        <span>{t('Public link with your private token. The address changes each time you turn this on, and traffic passes through Cloudflare.')}</span>
                       </p>
                     </div>
                   </div>

@@ -8996,6 +8996,20 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
       }),
     );
 
+    // Phone/web "Direct": text relayed as-is (no model call), shown as a finished card.
+    cleanups.push(
+      window.electronAPI.onPhoneMirrorIncomingDirect(({ id, text }) => {
+        setMessages((prev) =>
+          prev.some((m) => m.id === `direct-${id}`)
+            ? prev
+            : [...prev, { id: `direct-${id}`, role: 'system', text, intent: 'chat', isStreaming: false }],
+        );
+        setIsExpanded(true);
+        pinAnswerPanel();
+        scrollToLatest();
+      }),
+    );
+
     // Phone-initiated chat: main process streams tokens via gemini-stream-*; this
     // event adds the user turn + streaming placeholder before tokens arrive.
     cleanups.push(

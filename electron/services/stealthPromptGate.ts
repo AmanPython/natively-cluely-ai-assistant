@@ -22,6 +22,8 @@ export const UNDETECTABLE_REFUSAL_MESSAGES = {
     'Turn off Undetectable to install extensions. Its confirmation is a system dialog, which would show in a screen share.',
   lanAccess:
     'Turn off Undetectable to allow LAN access. Its confirmation is a system dialog, which would show in a screen share.',
+  internetAccess:
+    'Turn off Undetectable to allow internet access. Its confirmation is a system dialog, which would show in a screen share.',
 } as const;
 
 /**

@@ -1357,6 +1357,10 @@ export interface ElectronAPI {
 
   // Phone Mirror
   phoneMirrorGetInfo: () => Promise<PhoneMirrorInfo>;
+  phoneMirrorTunnelGet: () => Promise<PhoneMirrorTunnelInfo>;
+  phoneMirrorTunnelEnable: () => Promise<PhoneMirrorTunnelInfo | { error: string } | { declined: true }>;
+  phoneMirrorTunnelDisable: () => Promise<PhoneMirrorTunnelInfo>;
+  onPhoneMirrorTunnelStatus: (callback: (s: PhoneMirrorTunnelInfo) => void) => () => void;
   phoneMirrorEnable: (exposeOnLan: boolean) => Promise<PhoneMirrorInfo | { error: string }>;
   phoneMirrorDisable: () => Promise<{ success: true }>;
   phoneMirrorSetLan: (exposeOnLan: boolean) => Promise<PhoneMirrorInfo | { error: string }>;
@@ -1387,6 +1391,8 @@ export interface ElectronAPI {
       browserExperimentalFullPageCapture: boolean;
     }>,
   ) => Promise<BrowserContextSettings | { error: string }>;
+  // Text the web page sent with Direct: shown as-is (no model call).
+  onPhoneMirrorIncomingDirect: (callback: (data: { id: string; text: string }) => void) => () => void;
   onPhoneMirrorStatus: (callback: (info: PhoneMirrorInfo) => void) => () => void;
   onPhoneMirrorIncomingChat: (
     callback: (data: { message: string; streamId: string }) => void,
@@ -1608,6 +1614,15 @@ export type UploadSkillOutcome =
 // (The `failed` branch carries an optional `preview` when validation
 // succeeded but install failed, so the renderer can keep showing the
 // preview card alongside the install-time error message.)
+
+export interface PhoneMirrorTunnelInfo {
+  state: 'off' | 'starting' | 'running' | 'error';
+  url: string | null;
+  error: string | null;
+  errorCode: 'not-installed' | 'spawn-failed' | 'timeout' | 'exited' | 'unsupported-platform' | null;
+  pairingUrl: string | null;
+  qrDataUrl: string | null;
+}
 
 export interface PhoneMirrorInfo {
   running: boolean;

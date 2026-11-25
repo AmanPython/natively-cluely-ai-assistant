@@ -8,6 +8,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { SettingsManager } from './SettingsManager';
 import { CredentialsManager } from './CredentialsManager';
 import { PHONE_MIRROR_HTML } from './phoneMirrorClient';
+import { requestIdentity } from './phoneMirrorRequestIdentity';
 import { DOM_CONTEXT_MAX_CHARS } from '../config/constants';
 import { sanitizeContextEnvelope } from './browser-context/sanitize';
 import { describeUnreadableFormulas, PAGE_CAPTURE_FALLBACK_CHANNEL } from './pageCaptureFallback';
@@ -129,6 +130,8 @@ export interface PhoneTranscriptSegment {
 /** Command sent from the phone browser to the desktop. */
 export type PhoneCommand =
   | { type: 'chat'; message: string }
+  /** Text relayed to the desktop overlay as-is — never sent to a model. */
+  | { type: 'direct'; message: string }
   | { type: 'action'; action: string }
   | { type: 'screenshot' }
   /** Take a screenshot or photo off the overlay's tray (the phone names it by id; listeners get its path). */
@@ -592,6 +595,23 @@ export class PhoneMirrorService {
     };
     this.recordHistory(msg);
     this.broadcast({ type: 'assistant', id: msg.id, label, createdAt, ...payload });
+  }
+
+  /**
+   * Show text on connected phones/web pages exactly as written, rendered as a
+   * markdown answer card, WITHOUT sending it to any model. For reading
+   * material (an article, notes) the user wants relayed verbatim.
+   */
+  publishDirectMessage(content: string): { ok: true; id: string } | { ok: false; error: string } {
+    if (!this.isRunning()) return { ok: false, error: 'Turn on Phone Mirror first.' };
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text) return { ok: false, error: 'Nothing to send.' };
+    if (text.length > DIRECT_MESSAGE_MAX_CHARS) {
+      return { ok: false, error: `Too long (limit ${DIRECT_MESSAGE_MAX_CHARS.toLocaleString()} characters).` };
+    }
+    const id = `direct-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    this.publishAssistantMessage(id, text, 'Direct');
+    return { ok: true, id };
   }
 
   /**
@@ -1551,7 +1571,8 @@ export class PhoneMirrorService {
   }
 
   private handleHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const remote = req.socket.remoteAddress || '0.0.0.0';
+    const identity = requestIdentity(req.socket.remoteAddress, req.headers);
+    const remote = identity.ip;
     if (!this.rateAllow(remote)) {
       res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '30' });
       res.end('Too many requests');
@@ -1601,7 +1622,7 @@ export class PhoneMirrorService {
         return;
       }
 
-      if (!provided || !timingSafeEqualStr(provided, this.extToken)) {
+      if (identity.viaProxy || !provided || !timingSafeEqualStr(provided, this.extToken)) {
         const headers: Record<string, string> = { 'Content-Type': 'text/plain' };
         if (allowedOrigin) headers['Access-Control-Allow-Origin'] = allowedOrigin;
         res.writeHead(401, headers);
@@ -1733,7 +1754,7 @@ export class PhoneMirrorService {
         res.end(JSON.stringify({ error: 'method_not_allowed' }));
         return;
       }
-      if (!provided || !timingSafeEqualStr(provided, this.extToken)) {
+      if (identity.viaProxy || !provided || !timingSafeEqualStr(provided, this.extToken)) {
         res.writeHead(401, jsonHeaders);
         res.end(JSON.stringify({ error: 'unauthorized' }));
         return;
@@ -1819,7 +1840,7 @@ export class PhoneMirrorService {
         return;
       }
       // Loopback-only: a phone on the LAN must never reach /pair.
-      if (!isLoopbackAddress(remote) || !pairOrigin) {
+      if (!identity.loopback || !pairOrigin) {
         res.writeHead(403, jsonHeaders);
         res.end(JSON.stringify({ error: 'forbidden' }));
         return;
@@ -2124,7 +2145,8 @@ export class PhoneMirrorService {
   }
 
   private handleUpgrade(req: http.IncomingMessage, socket: any, head: Buffer): void {
-    const remote = req.socket.remoteAddress || '0.0.0.0';
+    const identity = requestIdentity(req.socket.remoteAddress, req.headers);
+    const remote = identity.ip;
     if (!this.rateAllow(remote)) {
       socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
       socket.destroy();
@@ -2159,6 +2181,13 @@ export class PhoneMirrorService {
     }
 
     const viaExtToken = !!(this.extToken && timingSafeEqualStr(provided, this.extToken));
+    // The extension role is loopback-only; a tunnelled client may be a phone
+    // (phone token) but never the extension, even holding the extension token.
+    if (viaExtToken && identity.viaProxy) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const wss = this.wss;
     if (!wss) {
       socket.destroy();
@@ -2259,7 +2288,7 @@ export class PhoneMirrorService {
         const raw = typeof data === 'string' ? data : (data as Buffer).toString('utf8');
         // Guard oversized payloads. An extension's `tabs` reply lists every open
         // tab, which passes 4 KB at about 20 tabs, so its sockets get more room.
-        if (raw.length > (this.extTokenSockets.has(ws) ? 65_536 : 4096)) return;
+        if (raw.length > (this.extTokenSockets.has(ws) ? 65_536 : PHONE_FRAME_MAX_CHARS)) return;
         const cmd = JSON.parse(raw) as unknown;
         if (!cmd || typeof cmd !== 'object') return;
         const c = cmd as Record<string, unknown>;
@@ -2277,6 +2306,13 @@ export class PhoneMirrorService {
           c.message.length <= 2000
         ) {
           validated = { type: 'chat', message: c.message.trim() };
+        } else if (
+          c.type === 'direct' &&
+          typeof c.message === 'string' &&
+          c.message.trim().length > 0 &&
+          c.message.length <= PHONE_DIRECT_MAX_CHARS
+        ) {
+          validated = { type: 'direct', message: c.message.trim() };
         } else if (
           c.type === 'action' &&
           typeof c.action === 'string' &&
@@ -2455,6 +2491,14 @@ export class PhoneMirrorService {
 
 // ----- helpers -----
 
+/** Longest "Direct" message the web page may send to the desktop (an article fits). */
+export const PHONE_DIRECT_MAX_CHARS = 20_000;
+/** JSON escaping can roughly double text, so the frame cap sits above the text cap. */
+const PHONE_FRAME_MAX_CHARS = PHONE_DIRECT_MAX_CHARS * 2 + 512;
+
+/** Largest verbatim message relayed to phones (a long article fits; a book does not). */
+export const DIRECT_MESSAGE_MAX_CHARS = 60_000;
+
 function generateToken(): string {
   return crypto.randomBytes(TOKEN_BYTES).toString('base64url');
 }
@@ -2531,6 +2575,7 @@ function isLoopbackAddress(addr: string): boolean {
     addr.startsWith('::ffff:127.')
   );
 }
+
 
 /**
  * Validate + clamp the optional capture meta from the extension before it crosses

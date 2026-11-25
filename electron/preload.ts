@@ -1825,6 +1825,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Phone Mirror — stream live AI responses to a paired phone over the LAN.
   phoneMirrorGetInfo: () => ipcRenderer.invoke('phone-mirror:get-info'),
+  phoneMirrorTunnelGet: () => ipcRenderer.invoke('phone-mirror:tunnel-get'),
+  phoneMirrorTunnelEnable: () => ipcRenderer.invoke('phone-mirror:tunnel-enable'),
+  phoneMirrorTunnelDisable: () => ipcRenderer.invoke('phone-mirror:tunnel-disable'),
+  onPhoneMirrorTunnelStatus: (callback: (s: unknown) => void) => {
+    const h = (_: unknown, s: unknown) => callback(s);
+    ipcRenderer.on('phone-mirror:tunnel-status', h);
+    return () => ipcRenderer.removeListener('phone-mirror:tunnel-status', h);
+  },
   phoneMirrorEnable: (exposeOnLan: boolean) =>
     ipcRenderer.invoke('phone-mirror:enable', exposeOnLan),
   phoneMirrorDisable: () => ipcRenderer.invoke('phone-mirror:disable'),
@@ -1860,6 +1868,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('phone-mirror:status', subscription);
     return () => {
       ipcRenderer.removeListener('phone-mirror:status', subscription);
+    };
+  },
+  onPhoneMirrorIncomingDirect: (callback: (data: { id: string; text: string }) => void) => {
+    const subscription = (_: unknown, data: { id: string; text: string }) => callback(data);
+    ipcRenderer.on('phone-mirror:incoming-direct', subscription);
+    return () => {
+      ipcRenderer.removeListener('phone-mirror:incoming-direct', subscription);
     };
   },
   onPhoneMirrorIncomingChat: (callback: (data: { message: string; streamId: string }) => void) => {
